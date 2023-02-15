@@ -5,11 +5,10 @@ use core::alloc::{GlobalAlloc, Layout};
 use core::cell::RefCell;
 use core::ptr::{self, NonNull};
 
-use critical_section::Mutex;
 use linked_list_allocator::Heap as LLHeap;
 
 pub struct Heap {
-    heap: Mutex<RefCell<LLHeap>>,
+    heap: RefCell<LLHeap>,
 }
 
 impl Heap {
@@ -19,7 +18,7 @@ impl Heap {
     /// [`init`](Self::init) method before using the allocator.
     pub const fn empty() -> Heap {
         Heap {
-            heap: Mutex::new(RefCell::new(LLHeap::empty())),
+            heap: RefCell::new(LLHeap::empty()),
         }
     }
 
@@ -48,43 +47,32 @@ impl Heap {
     /// - This function must be called exactly ONCE.
     /// - `size > 0`
     pub unsafe fn init(&self, start_addr: usize, size: usize) {
-        critical_section::with(|cs| {
-            self.heap
-                .borrow(cs)
-                .borrow_mut()
-                .init(start_addr as *mut u8, size);
-        });
+        self.heap.borrow_mut().init(start_addr as *mut u8, size)
     }
 
     /// Returns an estimate of the amount of bytes in use.
     pub fn used(&self) -> usize {
-        critical_section::with(|cs| self.heap.borrow(cs).borrow_mut().used())
+        self.heap.borrow_mut().used()
     }
 
     /// Returns an estimate of the amount of bytes available.
     pub fn free(&self) -> usize {
-        critical_section::with(|cs| self.heap.borrow(cs).borrow_mut().free())
+        self.heap.borrow_mut().free()
     }
 }
 
 unsafe impl GlobalAlloc for Heap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        critical_section::with(|cs| {
-            self.heap
-                .borrow(cs)
-                .borrow_mut()
-                .allocate_first_fit(layout)
-                .ok()
-                .map_or(ptr::null_mut(), |allocation| allocation.as_ptr())
-        })
+        self.heap
+            .borrow_mut()
+            .allocate_first_fit(layout)
+            .ok()
+            .map_or(ptr::null_mut(), |allocation| allocation.as_ptr())
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        critical_section::with(|cs| {
-            self.heap
-                .borrow(cs)
-                .borrow_mut()
-                .deallocate(NonNull::new_unchecked(ptr), layout)
-        });
+        self.heap
+            .borrow_mut()
+            .deallocate(NonNull::new_unchecked(ptr), layout)
     }
 }
